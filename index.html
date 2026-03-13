@@ -47,7 +47,7 @@
         }
         .prompt-card:hover { 
             transform: translateY(-4px); 
-            box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.1);
+            box-shadow: 0 15px 30px -10px rgba(0, 0, 0, 0.1);
         }
 
         input:focus, select:focus, textarea:focus {
@@ -62,9 +62,7 @@
     <script type="text/babel">
         const { useState, useEffect, useRef, useMemo } = React;
 
-        // ==========================================================
-        // 🛠️ Firebase 설정
-        // ==========================================================
+        // Firebase 설정
         const firebaseConfig = {
             apiKey: "AIzaSyBY0niSiio0iM7MHlI694xcWcANC8PrUiU",
             authDomain: "aigcoop.firebaseapp.com",
@@ -79,9 +77,7 @@
         const app = !firebase.apps.length ? firebase.initializeApp(firebaseConfig) : firebase.app();
         const auth = firebase.auth();
         
-        /** * ⭐ 연결 수정: 데이터베이스 ID 'prompt'를 명시적으로 지정합니다. 
-         * 스크린샷에 확인된 대로 기본값이 아닌 'prompt' 데이터베이스에 접속합니다.
-         */
+        // ⭐ 핵심: 사용자님이 생성하신 데이터베이스 'prompt'에 직접 연결합니다.
         const db = firebase.app().firestore("prompt");
         
         const appId = "aigcoop-final-master"; 
@@ -122,13 +118,7 @@
             const [adminInput, setAdminInput] = useState("");
             const [toast, setToast] = useState(null);
 
-            const [newPrompt, setNewPrompt] = useState({ title: "", imageData: null, content: "", category: "인물/프로필" });
-            const [editingId, setEditingId] = useState(null);
-            const [isAddingNewCategory, setIsAddingNewCategory] = useState(false);
-            const [tempCategory, setTempCategory] = useState("");
-            const fileInputRef = useRef(null);
-
-            // 이미지 최적화 (서버 용량 보호)
+            // 이미지 최적화 함수
             const optimizeImage = (base64Str) => {
                 return new Promise((resolve) => {
                     const img = new Image();
@@ -148,7 +138,7 @@
                 });
             };
 
-            // 1. 익명 로그인 처리
+            // 1. 익명 로그인
             useEffect(() => {
                 const unsubscribe = auth.onAuthStateChanged(async (u) => {
                     if (u) {
@@ -156,13 +146,13 @@
                         setLoading(false);
                     } else {
                         try { await auth.signInAnonymously(); }
-                        catch (e) { console.error("Auth Error:", e); setLoading(false); }
+                        catch (e) { console.error("Auth error", e); setLoading(false); }
                     }
                 });
                 return () => unsubscribe();
             }, []);
 
-            // 2. 데이터 실시간 연동 (데이터베이스 'prompt' 폴더 감시)
+            // 2. 실시간 데이터 연동
             useEffect(() => {
                 if (!user || !db) return;
                 const path = `artifacts/${appId}/public/data/prompts`;
@@ -175,7 +165,7 @@
                     setCategories(prev => [...new Set([...prev, ...dbCategories])]);
                 }, (err) => {
                     console.error("Firestore Loading Error:", err);
-                    showToast("데이터베이스 연결 실패", "error");
+                    showToast("서버 연결 대기 중...", "error");
                 });
                 return () => unsub();
             }, [user]);
@@ -199,28 +189,19 @@
                 
                 try {
                     const path = `artifacts/${appId}/public/data/prompts`;
-                    const dataToSave = { 
-                        ...newPrompt, 
-                        imageUrl: newPrompt.imageData || "", 
-                        updatedAt: Date.now() 
-                    };
+                    const dataToSave = { ...newPrompt, imageUrl: newPrompt.imageData || "", updatedAt: Date.now() };
 
                     if (editingId) {
                         await db.collection(path).doc(editingId).update(dataToSave);
                         showToast("수정 완료");
                     } else {
-                        await db.collection(path).add({ 
-                            ...dataToSave, 
-                            createdAt: Date.now(), 
-                            creatorId: user.uid 
-                        });
-                        showToast("등록 성공");
+                        await db.collection(path).add({ ...dataToSave, createdAt: Date.now(), creatorId: user.uid });
+                        showToast("서버에 등록되었습니다.");
                     }
                     setIsModalOpen(false); setEditingId(null);
-                    setNewPrompt({ title: "", imageData: null, content: "", category: "인물/프로필" });
                 } catch (e) { 
-                    console.error("Save Error:", e);
-                    showToast("저장 실패 (규칙 탭 확인 요망)", "error"); 
+                    console.error("Save error", e);
+                    showToast("저장 실패", "error"); 
                 } finally { setIsSaving(false); }
             };
 
@@ -259,14 +240,14 @@
                         </div>
                     </header>
 
-                    <div className="bg-white px-6 py-5 border-b border-slate-200 space-y-4 shadow-sm text-slate-900 font-bold font-black">
+                    <div className="bg-white px-6 py-5 border-b border-slate-200 space-y-4 shadow-sm text-slate-900 font-bold">
                         <div className="relative max-w-2xl mx-auto">
                             <Icon name="search" size={20} className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-500" />
                             <input type="text" placeholder="제목이나 내용 검색..." className="w-full bg-slate-50 border border-slate-200 rounded-2xl pl-12 pr-5 py-4 text-sm font-bold outline-none text-slate-900 shadow-inner" value={searchQuery} onChange={e => setSearchQuery(e.target.value)} />
                         </div>
                         <div className="flex gap-2 overflow-x-auto no-scrollbar justify-start sm:justify-center">
                             {categories.map(cat => (
-                                <button key={cat} onClick={() => setSelectedCategory(cat)} className={`flex-shrink-0 px-5 py-2.5 rounded-full text-[10px] font-black border whitespace-nowrap transition-all ${selectedCategory === cat ? 'bg-slate-900 text-white border-slate-900 shadow-lg scale-105' : 'bg-white text-slate-700 border-slate-300'}`}>{cat}</button>
+                                <button key={cat} onClick={() => setSelectedCategory(cat)} className={`flex-shrink-0 px-5 py-2.5 rounded-full text-[10px] font-black border whitespace-nowrap transition-all ${selectedCategory === cat ? 'bg-slate-900 text-white border-slate-900 shadow-lg scale-105' : 'bg-white text-slate-700 border-slate-300 hover:border-slate-500'}`}>{cat}</button>
                             ))}
                         </div>
                     </div>
@@ -274,23 +255,24 @@
                     <main className="flex-1 p-4 pb-32 max-w-7xl mx-auto w-full">
                         <div className="grid grid-cols-2 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-4 sm:gap-6">
                             {filteredPrompts.map((item) => (
-                                <div key={item.id} className="group rounded-[28px] overflow-hidden prompt-card zoom-in relative flex flex-col bg-white shadow-sm border border-slate-100">
+                                <div key={item.id} className="group rounded-[28px] overflow-hidden prompt-card zoom-in relative flex flex-col bg-white">
                                     <div className="aspect-video relative overflow-hidden bg-slate-100 cursor-zoom-in" onClick={() => setFullScreenItem(item)}>
                                         {item.imageUrl ? <img src={item.imageUrl} className="w-full h-full object-cover transition-transform duration-700 group-hover:scale-110" loading="lazy" /> : <div className="w-full h-full flex items-center justify-center text-slate-300"><Icon name="image" size={40} /></div>}
-                                        <div className="absolute top-2 left-2"><span className="bg-slate-900/90 text-white px-2 py-0.5 rounded-md text-[8px] font-black shadow-sm uppercase">{item.category}</span></div>
+                                        <div className="absolute top-2 left-2"><span className="bg-slate-900 text-white px-2 py-0.5 rounded-md text-[8px] font-black shadow-sm uppercase">{item.category}</span></div>
                                         {isAdmin && (
                                             <div className="absolute top-2 right-2 flex gap-1 animate-in slide-in-from-top-1">
-                                                <button onClick={(e) => { e.stopPropagation(); setEditingId(item.id); setNewPrompt({...item, imageData: item.imageUrl}); setIsModalOpen(true); }} className="p-2 bg-white/95 text-indigo-700 rounded-full shadow-md active:scale-90"><Icon name="pencil" size={12} /></button>
-                                                <button onClick={(e) => { e.stopPropagation(); setIsDeleteModalOpen(item.id); }} className="p-2 bg-white/95 text-rose-700 rounded-full shadow-md active:scale-90"><Icon name="trash-2" size={12} /></button>
+                                                <button onClick={(e) => { e.stopPropagation(); setEditingId(item.id); setNewPrompt({...item, imageData: item.imageUrl}); setIsModalOpen(true); }} className="p-2 bg-white/95 text-indigo-700 rounded-full shadow-md active:scale-90" title="수정"><Icon name="pencil" size={12} /></button>
+                                                <button onClick={(e) => { e.stopPropagation(); setIsDeleteModalOpen(item.id); }} className="p-2 bg-white/95 text-rose-700 rounded-full shadow-md active:scale-90" title="삭제"><Icon name="trash-2" size={12} /></button>
                                             </div>
                                         )}
+                                        <div className="absolute inset-0 bg-black/10 opacity-0 group-hover:opacity-100 flex items-center justify-center transition-opacity pointer-events-none"><Icon name="maximize-2" size={20} className="text-white" /></div>
                                     </div>
                                     <div className="p-3 flex flex-col gap-2 flex-1">
                                         <h3 className="font-black text-slate-900 text-[11px] line-clamp-1">{item.title}</h3>
                                         <button onClick={() => {
                                             const el = document.createElement('textarea'); el.value = item.content; document.body.appendChild(el); el.select(); document.execCommand('copy'); document.body.removeChild(el);
                                             showToast("프롬프트 복사 성공!");
-                                        }} className="w-full py-2 bg-slate-900 text-white rounded-xl text-[10px] font-black shadow-sm active:scale-95">프롬프트 복사</button>
+                                        }} className="w-full py-2 bg-slate-900 text-white rounded-xl text-[10px] font-black hover:bg-indigo-600 transition-all active:scale-95">복사하기</button>
                                     </div>
                                 </div>
                             ))}
@@ -308,7 +290,6 @@
                         )}
                     </main>
 
-                    {/* Registration Modal */}
                     {isModalOpen && isAdmin && (
                         <div className="fixed inset-0 z-[100] flex items-center justify-center p-4">
                             <div className="absolute inset-0 bg-slate-900/80 backdrop-blur-sm" onClick={() => setIsModalOpen(false)}></div>
@@ -319,25 +300,25 @@
                                     <input type="text" placeholder="작품 이름" className="w-full px-6 py-4 bg-slate-50 border border-slate-200 rounded-2xl outline-none" value={newPrompt.title} onChange={e => setNewPrompt({...newPrompt, title: e.target.value})} required />
                                     <div className="space-y-2">
                                         <div className="flex gap-2">
-                                            <select className="flex-1 px-6 py-4 bg-slate-50 border border-slate-200 rounded-2xl outline-none appearance-none cursor-pointer" value={newPrompt.category} onChange={e => setNewPrompt({...newPrompt, category: e.target.value})}>
+                                            <select className="flex-1 px-6 py-4 bg-slate-50 border border-slate-200 rounded-2xl text-slate-900 outline-none appearance-none cursor-pointer" value={newPrompt.category} onChange={e => setNewPrompt({...newPrompt, category: e.target.value})}>
                                                 {categories.filter(c => c !== "전체").map(cat => <option key={cat} value={cat}>{cat}</option>)}
                                             </select>
                                             <button type="button" onClick={() => setIsAddingNewCategory(!isAddingNewCategory)} className={`w-14 h-14 rounded-2xl flex items-center justify-center transition-all ${isAddingNewCategory ? 'bg-indigo-600 text-white' : 'bg-indigo-50 text-indigo-600 hover:bg-indigo-100'}`}><Icon name={isAddingNewCategory ? "x" : "plus"} size={24} /></button>
                                         </div>
                                         {isAddingNewCategory && (
-                                            <div className="flex gap-2 animate-in slide-in-from-top-2">
+                                            <div className="flex gap-2 animate-in slide-in-from-top-2 duration-300">
                                                 <input type="text" placeholder="새 분류명" className="flex-1 px-6 py-4 bg-white border border-indigo-200 rounded-2xl outline-none font-bold text-sm" value={tempCategory} onChange={e => setTempCategory(e.target.value)} onKeyDown={e => e.key === 'Enter' && (e.preventDefault(), setCategories([...categories, tempCategory]), setNewPrompt({...newPrompt, category: tempCategory}), setTempCategory(""), setIsAddingNewCategory(false))} />
                                                 <button type="button" onClick={() => { if(tempCategory.trim()){ setCategories([...categories, tempCategory.trim()]); setNewPrompt({...newPrompt, category: tempCategory.trim()}); setTempCategory(""); setIsAddingNewCategory(false); } }} className="px-6 bg-indigo-600 text-white rounded-2xl font-black text-xs">확인</button>
                                             </div>
                                         )}
                                     </div>
                                     <div onClick={() => fileInputRef.current?.click()} className="cursor-pointer aspect-video rounded-[32px] border-2 border-dashed border-slate-200 flex flex-col items-center justify-center transition-all bg-slate-50 hover:bg-indigo-50 overflow-hidden relative group">
-                                        {newPrompt.imageData ? <img src={newPrompt.imageData} className="w-full h-full object-cover" /> : <div className="text-center"><Icon name="upload" size={32} className="text-slate-300 mb-2 mx-auto" /><p className="text-[10px] font-black text-slate-500 uppercase text-center">이미지 선택 (자동 최적화)</p></div>}
+                                        {newPrompt.imageData ? <img src={newPrompt.imageData} className="w-full h-full object-cover" /> : <div className="text-center"><Icon name="upload" size={32} className="text-slate-300 mb-2 mx-auto" /><p className="text-[10px] font-black text-slate-500 uppercase text-center font-bold">이미지 선택 (자동 최적화)</p></div>}
                                     </div>
                                     <input ref={fileInputRef} type="file" accept="image/*" className="hidden" onChange={(e) => {
                                         const f = e.target.files[0]; if (f) { const r = new FileReader(); r.onloadend = async () => { const opt = await optimizeImage(r.result); setNewPrompt({...newPrompt, imageData: opt}); }; r.readAsDataURL(f); }
                                     }} />
-                                    <textarea rows="4" placeholder="사용된 AI 프롬프트 내용을 입력하세요" className="w-full px-6 py-4 bg-slate-50 border border-slate-200 rounded-2xl outline-none text-sm font-medium resize-none shadow-inner" value={newPrompt.content} onChange={e => setNewPrompt({...newPrompt, content: e.target.value})} required />
+                                    <textarea rows="4" placeholder="사용된 프롬프트 내용을 입력하세요" className="w-full px-6 py-4 bg-slate-50 border border-slate-200 rounded-2xl outline-none text-sm font-medium resize-none shadow-inner" value={newPrompt.content} onChange={e => setNewPrompt({...newPrompt, content: e.target.value})} required />
                                     <button type="submit" disabled={isSaving} className={`w-full py-5 rounded-[28px] font-black text-xl shadow-2xl transition-all flex items-center justify-center gap-3 ${isSaving ? 'bg-slate-200 text-slate-400 cursor-wait' : 'bg-indigo-600 text-white active:scale-95'}`}>
                                         {isSaving && <Icon name="loader-2" size={20} className="animate-spin" />} {editingId ? "정보 업데이트" : "서버에 등록하기"}
                                     </button>
@@ -350,11 +331,11 @@
                         <div className="fixed inset-0 z-[100] flex items-center justify-center p-4">
                             <div className="absolute inset-0 bg-slate-900/90 backdrop-blur-sm" onClick={() => setIsAdminAuthModalOpen(false)}></div>
                             <div className="relative bg-white w-full max-w-sm rounded-[48px] shadow-2xl p-12 text-center zoom-in text-slate-900">
-                                <div className="w-20 h-20 bg-indigo-50 text-indigo-600 rounded-[32px] flex items-center justify-center mx-auto mb-8 shadow-sm"><Icon name="lock" size={40} /></div>
-                                <h2 className="text-xl font-black mb-8 tracking-tight uppercase tracking-widest text-slate-800">Admin Mode</h2>
+                                <div className="w-20 h-20 bg-indigo-50 text-indigo-600 rounded-[32px] flex items-center justify-center mx-auto mb-8 shadow-sm font-black"><Icon name="lock" size={40} /></div>
+                                <h2 className="text-xl font-black mb-8 tracking-tight uppercase tracking-widest text-slate-800">Admin Authentication</h2>
                                 <form onSubmit={handleAdminAuth} className="space-y-4">
-                                    <input type="password" placeholder="PASSWORD" className="w-full px-6 py-5 bg-slate-50 border border-slate-200 rounded-[24px] outline-none font-black text-center tracking-[1em] text-lg focus:bg-white transition-all shadow-inner" value={adminInput} onChange={e => setAdminInput(e.target.value)} autoFocus required />
-                                    <button type="submit" className="w-full py-5 bg-slate-900 text-white rounded-[24px] font-black shadow-xl active:scale-95 transition-all text-sm uppercase tracking-widest hover:bg-black">Unlock</button>
+                                    <input type="password" placeholder="PASSWORD" className="w-full px-6 py-5 bg-slate-50 border border-slate-200 rounded-[24px] outline-none font-black text-center tracking-[1em] text-lg focus:bg-white transition-all shadow-inner font-bold" value={adminInput} onChange={e => setAdminInput(e.target.value)} autoFocus required />
+                                    <button type="submit" className="w-full py-5 bg-slate-900 text-white rounded-[24px] font-black shadow-xl active:scale-95 transition-all text-sm uppercase tracking-widest hover:bg-black font-bold">Unlock</button>
                                 </form>
                             </div>
                         </div>
@@ -374,7 +355,7 @@
                                     <button onClick={() => {
                                         const el = document.createElement('textarea'); el.value = fullScreenItem.content; document.body.appendChild(el); el.select(); document.execCommand('copy'); document.body.removeChild(el);
                                         showToast("프롬프트 복사 성공!");
-                                    }} className="w-full py-5 bg-indigo-600 text-white rounded-[24px] font-black shadow-xl active:scale-95 transition-all uppercase tracking-widest text-sm">Copy Prompt</button>
+                                    }} className="w-full py-5 bg-indigo-600 text-white rounded-[24px] font-black shadow-xl active:scale-95 transition-all uppercase tracking-widest text-sm font-bold">Copy Prompt</button>
                                 </div>
                             </div>
                         </div>
@@ -401,7 +382,7 @@
                     )}
 
                     {toast && (
-                        <div className={`fixed bottom-12 left-1/2 -translate-x-1/2 z-[200] px-8 py-4 rounded-full shadow-2xl text-white text-[12px] font-black flex items-center gap-3 bg-slate-900 animate-in slide-in-from-bottom-4`}>
+                        <div className={`fixed bottom-12 left-1/2 -translate-x-1/2 z-[200] px-8 py-4 rounded-full shadow-2xl text-white text-[12px] font-black flex items-center gap-3 bg-slate-900/95 backdrop-blur-md animate-in slide-in-from-bottom-4 font-bold`}>
                             <Icon name={toast.type === 'error' ? "alert-circle" : "check"} size={16} className={toast.type === 'error' ? "text-rose-400" : "text-emerald-400"} />
                             {toast.text}
                         </div>
