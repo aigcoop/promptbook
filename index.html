@@ -28,13 +28,13 @@
             font-family: 'Pretendard', sans-serif; 
             -webkit-tap-highlight-color: transparent; 
             background-color: #F8FAFC;
-            color: #1e293b;
+            color: #0F172A; 
         }
 
         .no-scrollbar::-webkit-scrollbar { display: none; }
         .no-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
         
-        .zoom-in { animation: zoomIn 0.3s cubic-bezier(0.4, 0, 0.2, 1); }
+        .zoom-in { animation: zoomIn 0.25s ease-out; }
         @keyframes zoomIn {
             from { opacity: 0; transform: scale(0.95); }
             to { opacity: 1; transform: scale(1); }
@@ -45,7 +45,7 @@
         }
         .prompt-card:hover { 
             transform: translateY(-4px); 
-            box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.05);
+            box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.1);
         }
 
         .icon-wrapper { 
@@ -53,6 +53,11 @@
             align-items: center; 
             justify-content: center; 
             line-height: 0; 
+        }
+
+        input:focus, select:focus, textarea:focus {
+            box-shadow: 0 0 0 3px rgba(79, 70, 229, 0.2);
+            border-color: #4F46E5;
         }
     </style>
 </head>
@@ -62,9 +67,6 @@
     <script type="text/babel">
         const { useState, useEffect, useRef, useMemo } = React;
 
-        // ==========================================================
-        // 🛠️ Firebase 설정 적용 완료
-        // ==========================================================
         const firebaseConfig = {
             apiKey: "AIzaSyBY0niSiio0iM7MHlI694xcWcANC8PrUiU",
             authDomain: "aigcoop.firebaseapp.com",
@@ -75,7 +77,6 @@
             measurementId: "G-N1NZNKM7PK"
         };
 
-        // Firebase 초기화
         if (!firebase.apps.length) {
             firebase.initializeApp(firebaseConfig);
         }
@@ -85,7 +86,6 @@
         const appId = "aigcoop-final-master"; 
         const ADMIN_PASSWORD = "gcoop1234";
 
-        // 초기 예시 데이터
         const SEED_DATA = [
             { title: "네온 사이버펑크 서울", category: "배경/풍경", content: "Vertical cinematic shot, Cyberpunk Seoul street at night, neon signs in Korean characters, rain reflecting on asphalt, 8k, hyper-realistic, 9:16 aspect ratio.", imageUrl: "https://images.unsplash.com/photo-1534239143101-1b1c627395c5?q=80&w=1000&auto=format&fit=crop" },
             { title: "지브리 감성 숲속 도서관", category: "애니메이션", content: "Studio Ghibli art style, a hidden library inside a giant tree, sunbeams, magical atmosphere, warm colors, detailed, 9:16.", imageUrl: "https://images.unsplash.com/photo-1516214626895-051a546ccdf2?q=80&w=1000&auto=format&fit=crop" },
@@ -99,7 +99,6 @@
             { title: "미래형 해저 도시 전경", category: "배경/풍경", content: "Futuristic underwater city inside glass domes, bioluminescent coral reefs, giant futuristic submarines, deep blue lighting, cinematic concept art, 9:16.", imageUrl: "https://images.unsplash.com/photo-1583212292454-1fe6229603b7?q=80&w=1000&auto=format&fit=crop" }
         ];
 
-        // --- 이미지 최적화 함수 (리사이징 및 압축) ---
         const optimizeImage = (base64Str) => {
             return new Promise((resolve) => {
                 const img = new Image();
@@ -108,8 +107,7 @@
                     const canvas = document.createElement('canvas');
                     let width = img.width;
                     let height = img.height;
-                    const MAX_SIZE = 1024; // 최대 가로/세로 길이를 1024px로 제한
-
+                    const MAX_SIZE = 1024;
                     if (width > height) {
                         if (width > MAX_SIZE) {
                             height *= MAX_SIZE / width;
@@ -121,12 +119,10 @@
                             height = MAX_SIZE;
                         }
                     }
-
                     canvas.width = width;
                     canvas.height = height;
                     const ctx = canvas.getContext('2d');
                     ctx.drawImage(img, 0, 0, width, height);
-                    // JPEG 품질 0.7로 압축하여 용량 대폭 감소
                     resolve(canvas.toDataURL('image/jpeg', 0.7));
                 };
             });
@@ -170,11 +166,11 @@
             const [toast, setToast] = useState(null);
 
             const [newPrompt, setNewPrompt] = useState({ title: "", imageData: null, content: "", category: "인물/프로필" });
+            const [editingId, setEditingId] = useState(null);
             const [isAddingNewCategory, setIsAddingNewCategory] = useState(false);
             const [tempCategory, setTempCategory] = useState("");
             const fileInputRef = useRef(null);
 
-            // 1. 인증 로직
             useEffect(() => {
                 const unsubscribe = auth.onAuthStateChanged(async (u) => {
                     if (u) {
@@ -184,12 +180,7 @@
                         try {
                             await auth.signInAnonymously();
                         } catch (e) {
-                            console.error("Auth Error:", e);
-                            if (e.code === 'auth/configuration-not-found') {
-                                setAuthError("Firebase 인증 설정에서 '익명 로그인'을 활성화해야 합니다.");
-                            } else {
-                                setAuthError(e.message);
-                            }
+                            setAuthError("인증 설정이 필요합니다.");
                             setLoading(false);
                         }
                     }
@@ -197,32 +188,19 @@
                 return () => unsubscribe();
             }, []);
 
-            // 2. 데이터 실시간 연동
             useEffect(() => {
                 if (!user || !db) return;
                 const path = `artifacts/${appId}/public/data/prompts`;
                 const query = db.collection(path);
-                
                 const unsub = query.onSnapshot((snap) => {
                     const data = snap.docs.map(doc => ({ id: doc.id, ...doc.data() }));
                     setPrompts(data.sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0)));
-                    
-                    // DB에 있는 카테고리들 중 새로운 것이 있다면 리스트 업데이트
                     const dbCategories = [...new Set(data.map(item => item.category))];
-                    setCategories(prev => {
-                        const next = [...new Set([...prev, ...dbCategories])];
-                        return next;
-                    });
-                    
+                    setCategories(prev => [...new Set([...prev, ...dbCategories])]);
                     setDbError(null);
                 }, (err) => {
-                    console.error("Firestore Error:", err);
-                    if (err.code === 'not-found') {
-                        setDbError("이 프로젝트에 Firestore 데이터베이스가 아직 생성되지 않았습니다.");
-                    } else if (err.code === 'permission-denied') {
-                        setDbError("Firestore 데이터베이스가 꺼져있거나 접근 권한이 부족합니다.");
-                    } else {
-                        setDbError(err.message);
+                    if (err.code === 'not-found' || err.code === 'permission-denied') {
+                        setDbError("데이터베이스 접근 오류");
                     }
                 });
                 return () => unsub();
@@ -239,10 +217,35 @@
                     setIsAdmin(true);
                     setIsAdminAuthModalOpen(false);
                     setAdminInput("");
-                    showToast("관리자 모드가 활성화되었습니다.");
+                    showToast("관리자 모드 활성화");
                 } else { 
-                    showToast("비밀번호가 올바르지 않습니다.", "error"); 
+                    showToast("비밀번호 오류", "error"); 
                 }
+            };
+
+            const openAddModal = () => {
+                setEditingId(null);
+                setNewPrompt({ title: "", imageData: null, content: "", category: "인물/프로필" });
+                setIsModalOpen(true);
+            };
+
+            const closeAddModal = () => {
+                setIsModalOpen(false);
+                setEditingId(null);
+                setNewPrompt({ title: "", imageData: null, content: "", category: "인물/프로필" });
+                setIsAddingNewCategory(false);
+                setTempCategory("");
+            };
+
+            const openEditModal = (item) => {
+                setEditingId(item.id);
+                setNewPrompt({
+                    title: item.title,
+                    imageData: item.imageUrl,
+                    content: item.content,
+                    category: item.category
+                });
+                setIsModalOpen(true);
             };
 
             const registerPrompt = async (e) => {
@@ -250,18 +253,25 @@
                 if (!isAdmin || !user) return;
                 try {
                     const path = `artifacts/${appId}/public/data/prompts`;
-                    await db.collection(path).add({
-                        ...newPrompt,
-                        imageUrl: newPrompt.imageData || "",
-                        createdAt: Date.now(),
-                        creatorId: user.uid
-                    });
-                    setNewPrompt({ title: "", imageData: null, content: "", category: "인물/프로필" });
-                    setIsModalOpen(false);
-                    showToast("성공적으로 등록되었습니다.");
+                    if (editingId) {
+                        await db.collection(path).doc(editingId).update({
+                            ...newPrompt,
+                            imageUrl: newPrompt.imageData || "",
+                            updatedAt: Date.now()
+                        });
+                        showToast("수정 완료");
+                    } else {
+                        await db.collection(path).add({
+                            ...newPrompt,
+                            imageUrl: newPrompt.imageData || "",
+                            createdAt: Date.now(),
+                            creatorId: user.uid
+                        });
+                        showToast("등록 완료");
+                    }
+                    closeAddModal();
                 } catch (e) { 
-                    console.error(e);
-                    showToast("등록 실패 (용량 또는 권한 문제)", "error"); 
+                    showToast("처리 실패", "error"); 
                 }
             };
 
@@ -272,7 +282,7 @@
                     for (const item of SEED_DATA) {
                         await db.collection(path).add({ ...item, createdAt: Date.now(), creatorId: user.uid });
                     }
-                    showToast("샘플 프롬프트 로드 완료");
+                    showToast("샘플 로드 완료");
                 } catch (e) { showToast("로드 실패", "error"); }
             };
 
@@ -283,7 +293,7 @@
                     setNewPrompt(prev => ({ ...prev, category: trimmed }));
                     setTempCategory("");
                     setIsAddingNewCategory(false);
-                    showToast(`'${trimmed}' 분류가 추가되었습니다.`);
+                    showToast(`'${trimmed}' 분류 추가됨`);
                 }
             };
 
@@ -296,217 +306,225 @@
                 });
             }, [prompts, selectedCategory, searchQuery]);
 
-            // 에러 안내 컴포넌트
-            const ErrorView = ({ title, message, steps, url }) => (
+            if (authError || dbError) return (
                 <div className="min-h-screen bg-slate-900 flex flex-col items-center justify-center p-6 text-center">
                     <div className="bg-white p-10 rounded-[48px] shadow-2xl max-w-lg w-full border border-slate-100 zoom-in">
-                        <Icon name="alert-triangle" size={72} className="text-rose-500 mb-6 mx-auto" />
-                        <h1 className="text-2xl font-black text-gray-800 mb-4 tracking-tight">{title}</h1>
-                        <div className="text-left bg-slate-50 p-6 rounded-3xl border border-slate-100 mb-8 space-y-4">
-                            <p className="text-sm text-gray-600 leading-relaxed font-bold">{message}</p>
-                            <div className="text-xs text-indigo-600 font-bold space-y-2">
-                                <p>✅ 지금 바로 해결하세요:</p>
-                                <ol className="list-decimal ml-4 space-y-2">
-                                    {steps.map((step, i) => <li key={i}>{step}</li>)}
-                                </ol>
-                            </div>
-                        </div>
-                        <div className="flex flex-col gap-3">
-                            <a href={url} target="_blank" className="w-full py-4 bg-indigo-600 text-white rounded-[24px] font-black shadow-xl active:scale-95 transition-transform flex items-center justify-center gap-2">
-                                <Icon name="external-link" size={18} /> Firebase 콘솔로 이동
-                            </a>
-                            <button onClick={() => window.location.reload()} className="w-full py-4 bg-slate-100 text-slate-500 rounded-[24px] font-black text-xs hover:bg-slate-200 transition-colors">설정 완료 후 새로고침</button>
-                        </div>
+                        <Icon name="alert-triangle" size={72} className="text-rose-600 mb-6 mx-auto" />
+                        <h1 className="text-2xl font-black text-gray-900 mb-4 tracking-tight">설정 확인 필요</h1>
+                        <p className="text-sm text-gray-700 leading-relaxed mb-8">{authError || dbError}</p>
+                        <button onClick={() => window.location.reload()} className="w-full py-5 bg-indigo-600 text-white rounded-[24px] font-black shadow-xl">새로고침</button>
                     </div>
                 </div>
-            );
-
-            if (authError) return (
-                <ErrorView 
-                    title="인증 서비스 설정 필요" 
-                    message={authError} 
-                    steps={["Firebase Console > Authentication 메뉴 진입", "Sign-in method 탭 클릭", "'새 제공업체 추가' 클릭", "익명(Anonymous) 사용 설정 및 저장"]}
-                    url={`https://console.firebase.google.com/project/${firebaseConfig.projectId}/authentication/providers`}
-                />
-            );
-
-            if (dbError) return (
-                <ErrorView 
-                    title="데이터베이스 생성 필요" 
-                    message={dbError} 
-                    steps={["위 링크를 클릭해 Firebase Console로 이동", "중앙의 '데이터베이스 만들기(Create Database)' 클릭", "위치(Region) 선택 후 다음", "'테스트 모드'로 시작 선택 (데이터 관리가 쉬워집니다)", "데이터베이스 생성이 완료될 때까지 잠시 대기"]}
-                    url={`https://console.firebase.google.com/project/${firebaseConfig.projectId}/firestore`}
-                />
             );
 
             if (loading) return (
                 <div className="min-h-screen bg-white flex flex-col items-center justify-center">
                     <div className="animate-spin text-indigo-600 mb-4"><Icon name="loader-2" size={40} /></div>
-                    <p className="text-slate-400 font-black text-xs tracking-widest uppercase animate-pulse">AIGCOOP CONNECTING</p>
+                    <p className="text-slate-500 font-black text-xs tracking-widest uppercase">AIGCOOP CONNECTING</p>
                 </div>
             );
 
             return (
                 <div className="min-h-screen flex flex-col max-w-[2000px] mx-auto overflow-x-hidden">
                     {/* Header */}
-                    <header className="sticky top-0 z-40 bg-white/80 backdrop-blur-xl border-b border-slate-100 px-5 py-4 flex items-center justify-between shadow-sm">
+                    <header className="sticky top-0 z-40 bg-white/90 backdrop-blur-xl border-b border-slate-200 px-5 py-4 flex items-center justify-between shadow-sm">
                         <div className="flex items-center gap-3">
-                            <div className="w-10 h-10 bg-indigo-600 rounded-2xl flex items-center justify-center text-white shadow-xl">
+                            <div className="w-10 h-10 bg-indigo-600 rounded-2xl flex items-center justify-center text-white shadow-xl shadow-indigo-200">
                                 <Icon name="globe" size={22} />
                             </div>
                             <div className="overflow-hidden">
-                                <h1 className="font-black text-sm sm:text-base tracking-tighter leading-none mb-1 text-gray-800 truncate uppercase">AIGCOOP 프롬프트 BOOK</h1>
+                                <h1 className="font-black text-sm sm:text-base tracking-tighter leading-none mb-1 text-slate-900 truncate uppercase">AIGCOOP 프롬프트 BOOK</h1>
                                 <div className="flex items-center gap-1.5">
-                                    <div className={`w-1.5 h-1.5 rounded-full ${isAdmin ? 'bg-indigo-500 animate-pulse' : 'bg-slate-300'}`}></div>
-                                    <span className="text-[9px] font-black uppercase text-slate-400 tracking-widest">{isAdmin ? 'Admin Mode' : 'Visitor Mode'}</span>
+                                    <div className={`w-1.5 h-1.5 rounded-full ${isAdmin ? 'bg-emerald-500 animate-pulse' : 'bg-slate-400'}`}></div>
+                                    <span className={`text-[9px] font-black uppercase tracking-widest ${isAdmin ? 'text-emerald-600' : 'text-slate-500'}`}>
+                                        {isAdmin ? 'Admin Active' : 'Visitor Mode'}
+                                    </span>
                                 </div>
                             </div>
                         </div>
                         <div className="flex items-center gap-2">
-                            <button onClick={() => isAdmin ? setIsAdmin(false) : setIsAdminAuthModalOpen(true)} className={`w-10 h-10 rounded-xl flex items-center justify-center transition-all ${isAdmin ? 'bg-indigo-50 text-indigo-600 shadow-inner' : 'bg-slate-50 text-slate-400'}`}>
+                            <button 
+                                onClick={() => isAdmin ? setIsAdmin(false) : setIsAdminAuthModalOpen(true)} 
+                                className={`w-10 h-10 rounded-xl flex items-center justify-center transition-all ${isAdmin ? 'bg-indigo-600 text-white shadow-lg' : 'bg-slate-100 text-slate-700 hover:bg-slate-200'}`}
+                            >
                                 <Icon name={isAdmin ? "unlock" : "lock"} size={20} />
                             </button>
                             {isAdmin && (
-                                <button onClick={() => setIsModalOpen(true)} className="h-10 px-4 bg-indigo-600 text-white rounded-xl font-black text-sm shadow-lg flex items-center gap-1 active:scale-95 transition-transform">
-                                    <Icon name="plus-circle" size={18} /> 추가
+                                <button onClick={openAddModal} className="h-10 px-4 bg-indigo-600 text-white rounded-xl font-black text-sm shadow-xl flex items-center gap-2 active:scale-95 transition-all">
+                                    <Icon name="plus" size={18} /> 추가
                                 </button>
                             )}
                         </div>
                     </header>
 
                     {/* Search Area */}
-                    <div className="bg-white px-6 py-5 border-b border-slate-50 space-y-4 shadow-sm">
+                    <div className="bg-white px-6 py-5 border-b border-slate-200 space-y-4 shadow-sm">
                         <div className="relative max-w-2xl mx-auto">
-                            <Icon name="search" size={20} className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-300" />
-                            <input type="text" placeholder="제목이나 내용으로 검색..." className="w-full bg-slate-50 border-none rounded-2xl pl-12 pr-5 py-4 text-sm font-bold outline-none focus:ring-4 focus:ring-indigo-500/5 transition-all" value={searchQuery} onChange={e => setSearchQuery(e.target.value)} />
+                            <Icon name="search" size={20} className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400" />
+                            <input type="text" placeholder="제목이나 내용으로 검색..." className="w-full bg-slate-50 border border-slate-200 rounded-2xl pl-12 pr-5 py-4 text-sm font-bold outline-none text-slate-900" value={searchQuery} onChange={e => setSearchQuery(e.target.value)} />
                         </div>
-                        <div className="flex gap-2 overflow-x-auto no-scrollbar justify-start sm:justify-center px-1">
+                        <div className="flex gap-2 overflow-x-auto no-scrollbar justify-start sm:justify-center">
                             {categories.map(cat => (
-                                <button key={cat} onClick={() => setSelectedCategory(cat)} className={`flex-shrink-0 px-5 py-2.5 rounded-full text-[10px] font-black border whitespace-nowrap transition-all ${selectedCategory === cat ? 'bg-slate-900 text-white border-slate-900 shadow-lg scale-105' : 'bg-white text-slate-400 border-slate-100 hover:border-slate-300'}`}>{cat}</button>
+                                <button key={cat} onClick={() => setSelectedCategory(cat)} className={`flex-shrink-0 px-5 py-2.5 rounded-full text-[10px] font-black border whitespace-nowrap transition-all ${selectedCategory === cat ? 'bg-slate-900 text-white border-slate-900 shadow-lg scale-105' : 'bg-white text-slate-500 border-slate-200 hover:border-slate-400'}`}>{cat}</button>
                             ))}
                         </div>
                     </div>
 
-                    {/* Main Content Grid */}
+                    {/* Grid List */}
                     <main className="flex-1 p-4 pb-32 max-w-7xl mx-auto w-full">
                         <div className="grid grid-cols-2 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-4 sm:gap-6">
                             {filteredPrompts.map((item) => (
-                                <div key={item.id} className="group bg-white rounded-[28px] overflow-hidden border border-slate-100 shadow-sm flex flex-col prompt-card zoom-in">
-                                    <div className="aspect-video relative overflow-hidden bg-slate-50 cursor-zoom-in" onClick={() => setFullScreenItem(item)}>
-                                        {item.imageUrl ? <img src={item.imageUrl} className="w-full h-full object-cover transition-transform duration-700 group-hover:scale-110" loading="lazy" /> : <div className="w-full h-full flex items-center justify-center text-slate-100 bg-slate-50"><Icon name="image" size={40} /></div>}
-                                        <div className="absolute top-2 left-2"><span className="bg-white/95 backdrop-blur-md px-2 py-0.5 rounded-md text-[8px] font-black text-indigo-600 shadow-sm uppercase">{item.category}</span></div>
-                                        {isAdmin && <button onClick={(e) => { e.stopPropagation(); setIsDeleteModalOpen(item.id); }} className="absolute top-2 right-2 p-1.5 bg-white/95 rounded-full text-slate-300 hover:text-rose-500 transition-colors shadow-sm"><Icon name="trash-2" size={12} /></button>}
-                                        <div className="absolute inset-0 bg-black/10 opacity-0 group-hover:opacity-100 flex items-center justify-center transition-opacity"><Icon name="maximize-2" size={20} className="text-white" /></div>
+                                <div key={item.id} className="group bg-white rounded-[28px] overflow-hidden border border-slate-200 shadow-sm flex flex-col prompt-card zoom-in relative">
+                                    <div className="aspect-video relative overflow-hidden bg-slate-100 cursor-zoom-in" onClick={() => setFullScreenItem(item)}>
+                                        {item.imageUrl ? <img src={item.imageUrl} className="w-full h-full object-cover transition-transform duration-700 group-hover:scale-110" loading="lazy" /> : <div className="w-full h-full flex items-center justify-center text-slate-200"><Icon name="image" size={40} /></div>}
+                                        <div className="absolute top-2 left-2"><span className="bg-white/95 backdrop-blur-md px-2 py-0.5 rounded-md text-[8px] font-black text-indigo-700 shadow-sm uppercase">{item.category}</span></div>
+                                        {isAdmin && (
+                                            <div className="absolute top-2 right-2 flex gap-1 animate-in slide-in-from-top-1">
+                                                <button onClick={(e) => { e.stopPropagation(); openEditModal(item); }} className="p-2 bg-white/95 backdrop-blur-md rounded-full text-indigo-600 hover:bg-indigo-600 hover:text-white transition-all shadow-md active:scale-90">
+                                                    <Icon name="pencil" size={12} />
+                                                </button>
+                                                <button onClick={(e) => { e.stopPropagation(); setIsDeleteModalOpen(item.id); }} className="p-2 bg-white/95 backdrop-blur-md rounded-full text-rose-600 hover:bg-rose-600 hover:text-white transition-all shadow-md active:scale-90">
+                                                    <Icon name="trash-2" size={12} />
+                                                </button>
+                                            </div>
+                                        )}
+                                        <div className="absolute inset-0 bg-black/10 opacity-0 group-hover:opacity-100 flex items-center justify-center transition-opacity pointer-events-none"><Icon name="maximize-2" size={20} className="text-white" /></div>
                                     </div>
                                     <div className="p-3 flex flex-col gap-2 bg-white flex-1">
-                                        <h3 className="font-black text-slate-800 text-[11px] line-clamp-1">{item.title}</h3>
-                                        <button onClick={() => {
-                                            const el = document.createElement('textarea'); el.value = item.content; document.body.appendChild(el); el.select(); document.execCommand('copy'); document.body.removeChild(el);
-                                            setCopyStatus(item.id); setTimeout(() => setCopyStatus(null), 2000);
-                                            showToast("프롬프트 복사 성공!");
-                                        }} className={`w-full py-2.5 rounded-xl text-[10px] font-black transition-all shadow-sm active:scale-95 ${copyStatus === item.id ? 'bg-emerald-500 text-white shadow-emerald-100' : 'bg-slate-900 text-white'}`}>{copyStatus === item.id ? "성공!" : "프롬프트 복사"}</button>
+                                        <h3 className="font-black text-slate-900 text-[11px] line-clamp-1">{item.title}</h3>
+                                        <button 
+                                            onClick={() => {
+                                                const el = document.createElement('textarea'); el.value = item.content; document.body.appendChild(el); el.select(); document.execCommand('copy'); document.body.removeChild(el);
+                                                setCopyStatus(item.id); setTimeout(() => setCopyStatus(null), 2000);
+                                                showToast("프롬프트 복사됨");
+                                            }} 
+                                            className={`w-full py-2.5 rounded-xl text-[10px] font-black transition-all shadow-sm active:scale-95 ${copyStatus === item.id ? 'bg-emerald-600 text-white' : 'bg-slate-900 text-white'}`}
+                                        >
+                                            {copyStatus === item.id ? "복사 성공!" : "프롬프트 복사"}
+                                        </button>
                                     </div>
                                 </div>
                             ))}
                         </div>
                         
-                        {/* Empty State UI */}
                         {filteredPrompts.length === 0 && !loading && (
                             <div className="py-24 text-center">
-                                <Icon name="sparkles" size={64} className="mx-auto text-slate-100 mb-4" />
-                                <p className="text-slate-400 font-black text-lg mb-8 uppercase tracking-widest italic">멋진 작품을 기다리고 있어요</p>
+                                <Icon name="sparkles" size={64} className="mx-auto text-slate-200 mb-4" />
+                                <p className="text-slate-500 font-black text-lg mb-8 italic uppercase tracking-wider">Empty Prompt Book</p>
                                 {isAdmin ? (
                                     <div className="flex flex-col items-center gap-4">
                                         <button 
-                                            onClick={() => setIsModalOpen(true)}
-                                            className="px-10 py-5 bg-indigo-600 text-white rounded-3xl font-black text-lg shadow-2xl shadow-indigo-100 active:scale-95 transition-all flex items-center gap-3"
+                                            onClick={openAddModal}
+                                            className="px-10 py-5 bg-indigo-600 text-white rounded-3xl font-black text-lg shadow-2xl active:scale-95 transition-all flex items-center gap-3"
                                         >
-                                            <Icon name="plus-circle" size={24} /> 첫 프롬프트 등록하기
+                                            <Icon name="plus-circle" size={24} /> 프롬프트 등록하기
                                         </button>
-                                        <button onClick={handleSeedLoad} className="text-indigo-600 font-black text-xs underline underline-offset-4 p-4">기본 샘플 10개 한꺼번에 불러오기</button>
+                                        <button onClick={handleSeedLoad} className="text-indigo-600 font-black text-xs underline p-4">샘플 10개 로드</button>
                                     </div>
                                 ) : (
-                                    <p className="text-slate-300 text-xs font-bold uppercase tracking-widest">관리자 인증 후 콘텐츠를 채워 넣을 수 있습니다.</p>
+                                    <p className="text-slate-400 text-xs font-bold uppercase tracking-widest">Unlock to start contributing</p>
                                 )}
                             </div>
                         )}
                     </main>
 
-                    {/* Detailed Viewer (9:16) */}
+                    {/* 상세 뷰어 */}
                     {fullScreenItem && (
-                        <div className="fixed inset-0 z-[1000] bg-black/98 backdrop-blur-md flex flex-col items-center justify-center p-4 sm:p-10 zoom-in" onClick={() => setFullScreenItem(null)}>
-                            <button className="absolute top-6 right-6 text-white/40 hover:text-white p-3 bg-white/10 rounded-full transition-all"><Icon name="x" size={32} /></button>
+                        <div className="fixed inset-0 z-[1000] bg-black/95 backdrop-blur-md flex flex-col items-center justify-center p-4 sm:p-10 zoom-in" onClick={() => setFullScreenItem(null)}>
+                            <button className="absolute top-6 right-6 text-white/60 hover:text-white p-3 bg-white/10 rounded-full transition-all"><Icon name="x" size={32} /></button>
                             <div className="flex flex-col items-center gap-5 max-w-full" onClick={e => e.stopPropagation()}>
-                                <img src={fullScreenItem.imageUrl} className="max-h-[60vh] sm:max-h-[65vh] rounded-[40px] object-contain shadow-2xl border border-white/5" style={{ aspectRatio: '9/16' }} />
+                                <img src={fullScreenItem.imageUrl} className="max-h-[60vh] sm:max-h-[65vh] rounded-[40px] object-contain shadow-2xl border border-white/10" style={{ aspectRatio: '9/16' }} />
                                 <div className="bg-white/10 backdrop-blur-xl p-8 rounded-[40px] w-full max-w-md border border-white/20">
                                     <div className="flex justify-between items-center mb-5">
                                         <h2 className="text-white text-xl font-black tracking-tight line-clamp-1">{fullScreenItem.title}</h2>
                                         <span className="bg-indigo-600 text-white text-[10px] px-3 py-1.5 rounded-xl font-black uppercase shadow-lg flex-shrink-0">{fullScreenItem.category}</span>
                                     </div>
-                                    <div className="bg-black/30 rounded-3xl p-6 text-white/80 font-mono text-xs max-h-40 overflow-y-auto mb-6 leading-relaxed scrollbar-hide italic border border-white/5 select-all">{fullScreenItem.content}</div>
+                                    <div className="bg-black/30 rounded-3xl p-6 text-white/90 font-mono text-xs max-h-40 overflow-y-auto mb-6 leading-relaxed italic select-all border border-white/5">{fullScreenItem.content}</div>
                                     <button onClick={() => {
                                         const el = document.createElement('textarea'); el.value = fullScreenItem.content; document.body.appendChild(el); el.select(); document.execCommand('copy'); document.body.removeChild(el);
                                         showToast("프롬프트 복사 성공!");
-                                    }} className="w-full py-5 bg-indigo-600 text-white rounded-[24px] font-black shadow-xl shadow-indigo-500/20 active:scale-95 transition-all">전체 복사하기</button>
+                                    }} className="w-full py-5 bg-indigo-600 text-white rounded-[24px] font-black shadow-xl active:scale-95 transition-all">전체 복사하기</button>
                                 </div>
                             </div>
                         </div>
                     )}
 
-                    {/* Admin Auth Modal */}
+                    {/* 관리자 인증 모달 */}
                     {isAdminAuthModalOpen && (
                         <div className="fixed inset-0 z-[100] flex items-center justify-center p-4">
-                            <div className="absolute inset-0 bg-slate-900/70 backdrop-blur-sm" onClick={() => setIsAdminAuthModalOpen(false)}></div>
+                            <div className="absolute inset-0 bg-slate-900/80 backdrop-blur-sm" onClick={() => setIsAdminAuthModalOpen(false)}></div>
                             <div className="relative bg-white w-full max-w-sm rounded-[48px] shadow-2xl p-10 text-center zoom-in">
-                                <div className="w-16 h-16 bg-indigo-50 text-indigo-600 rounded-3xl flex items-center justify-center mx-auto mb-6 shadow-sm"><Icon name="lock" size={32} /></div>
-                                <h2 className="text-xl font-black text-slate-800 mb-6 tracking-tight uppercase">Manager Auth</h2>
+                                <div className="w-16 h-16 bg-slate-100 text-slate-900 rounded-3xl flex items-center justify-center mx-auto mb-6 shadow-sm"><Icon name="lock" size={32} /></div>
+                                <h2 className="text-xl font-black text-slate-900 mb-6 tracking-tight uppercase tracking-widest">Admin Authentication</h2>
                                 <form onSubmit={handleAdminAuth} className="space-y-4">
-                                    <input type="password" placeholder="비밀번호 입력" className="w-full px-6 py-4 bg-slate-50 border-none rounded-2xl outline-none font-bold text-center tracking-widest focus:ring-4 focus:ring-indigo-500/10 transition-all" value={adminInput} onChange={e => setAdminInput(e.target.value)} autoFocus required />
-                                    <button type="submit" className="w-full py-5 bg-indigo-600 text-white rounded-[24px] font-black shadow-xl hover:bg-indigo-700 active:scale-95 transition-all">로그인</button>
+                                    <input 
+                                        type="password" 
+                                        placeholder="비밀번호" 
+                                        className="w-full px-6 py-5 bg-slate-50 border border-slate-200 rounded-[24px] outline-none font-black text-center tracking-[1em] text-slate-900" 
+                                        value={adminInput} 
+                                        onChange={e => setAdminInput(e.target.value)} 
+                                        autoFocus 
+                                        required 
+                                    />
+                                    <button type="submit" className="w-full py-5 bg-slate-900 text-white rounded-[24px] font-black shadow-xl hover:bg-black active:scale-95 transition-all">로그인</button>
                                 </form>
                             </div>
                         </div>
                     )}
 
-                    {/* Add/Registration Modal */}
+                    {/* 등록/수정 모달 (닫기 버튼 추가됨) */}
                     {isModalOpen && isAdmin && (
                         <div className="fixed inset-0 z-[100] flex items-center justify-center p-4">
-                            <div className="absolute inset-0 bg-slate-900/60 backdrop-blur-sm" onClick={() => setIsModalOpen(false)}></div>
+                            <div className="absolute inset-0 bg-slate-900/70 backdrop-blur-sm" onClick={closeAddModal}></div>
                             <div className="relative bg-white w-full max-w-md rounded-[48px] shadow-2xl p-10 zoom-in">
-                                <h2 className="text-2xl font-black text-slate-800 mb-8 flex items-center gap-3"><Icon name="folder-plus" className="text-indigo-600" /> 신규 프롬프트 등록</h2>
+                                {/* 닫기 버튼 */}
+                                <button 
+                                    onClick={closeAddModal}
+                                    className="absolute top-8 right-8 w-10 h-10 bg-slate-100 text-slate-500 rounded-full flex items-center justify-center hover:bg-rose-50 hover:text-rose-500 transition-all z-10"
+                                >
+                                    <Icon name="x" size={20} />
+                                </button>
+
+                                <h2 className="text-2xl font-black text-slate-900 mb-8 flex items-center gap-3">
+                                    <Icon name={editingId ? "pencil" : "folder-plus"} className="text-indigo-600" /> 
+                                    {editingId ? "프롬프트 수정" : "신규 프롬프트 등록"}
+                                </h2>
                                 <form onSubmit={registerPrompt} className="space-y-6 max-h-[75vh] overflow-y-auto no-scrollbar pr-2">
-                                    <input type="text" placeholder="작품 이름" className="w-full px-6 py-4 bg-slate-50 border-none rounded-2xl outline-none font-bold text-sm focus:ring-4 focus:ring-indigo-500/5 transition-all" value={newPrompt.title} onChange={e => setNewPrompt({...newPrompt, title: e.target.value})} required />
+                                    <div className="space-y-1">
+                                        <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">제목</label>
+                                        <input type="text" placeholder="작품 이름" className="w-full px-6 py-4 bg-slate-50 border border-slate-200 rounded-2xl outline-none font-bold text-sm text-slate-900" value={newPrompt.title} onChange={e => setNewPrompt({...newPrompt, title: e.target.value})} required />
+                                    </div>
                                     
                                     <div className="space-y-2">
+                                        <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">분류 선택</label>
                                         <div className="flex gap-2">
                                             <div className="relative flex-1">
                                                 <select 
-                                                    className="w-full px-6 py-4 bg-slate-50 border-none rounded-2xl text-sm font-bold outline-none appearance-none cursor-pointer focus:ring-4 focus:ring-indigo-500/5 transition-all" 
+                                                    className="w-full px-6 py-4 bg-slate-50 border border-slate-200 rounded-2xl text-sm font-bold outline-none appearance-none cursor-pointer text-slate-900" 
                                                     value={newPrompt.category} 
                                                     onChange={e => setNewPrompt({...newPrompt, category: e.target.value})}
                                                 >
                                                     {categories.filter(c => c !== "전체").map(cat => <option key={cat} value={cat}>{cat}</option>)}
                                                 </select>
-                                                <div className="absolute right-4 top-1/2 -translate-y-1/2 pointer-events-none text-slate-300">
+                                                <div className="absolute right-4 top-1/2 -translate-y-1/2 pointer-events-none text-slate-400">
                                                     <Icon name="chevron-down" size={18} />
                                                 </div>
                                             </div>
                                             <button 
                                                 type="button" 
                                                 onClick={() => setIsAddingNewCategory(!isAddingNewCategory)}
-                                                className={`w-14 h-14 rounded-2xl flex items-center justify-center transition-all ${isAddingNewCategory ? 'bg-indigo-600 text-white shadow-lg' : 'bg-indigo-50 text-indigo-600 hover:bg-indigo-100'}`}
-                                                title="분류 추가"
+                                                className={`w-14 h-14 rounded-2xl flex items-center justify-center transition-all ${isAddingNewCategory ? 'bg-indigo-600 text-white' : 'bg-slate-100 text-indigo-600 hover:bg-slate-200'}`}
                                             >
                                                 <Icon name={isAddingNewCategory ? "x" : "plus"} size={24} />
                                             </button>
                                         </div>
 
                                         {isAddingNewCategory && (
-                                            <div className="flex gap-2 animate-in slide-in-from-top-2 duration-300">
+                                            <div className="flex gap-2 animate-in slide-in-from-top-2">
                                                 <input 
                                                     type="text" 
-                                                    placeholder="새 분류 입력 (예: 로고, 스티커)" 
-                                                    className="flex-1 px-6 py-4 bg-white border-2 border-indigo-100 rounded-2xl outline-none font-bold text-sm focus:border-indigo-500 transition-all"
+                                                    placeholder="새 분류명 입력" 
+                                                    className="flex-1 px-6 py-4 bg-white border-2 border-indigo-100 rounded-2xl outline-none font-bold text-sm text-slate-900"
                                                     value={tempCategory}
                                                     onChange={e => setTempCategory(e.target.value)}
                                                     onKeyDown={e => e.key === 'Enter' && (e.preventDefault(), handleAddNewCategory())}
@@ -514,65 +532,71 @@
                                                 <button 
                                                     type="button"
                                                     onClick={handleAddNewCategory}
-                                                    className="px-6 bg-indigo-600 text-white rounded-2xl font-black text-xs shadow-lg active:scale-95 transition-all"
+                                                    className="px-6 bg-indigo-600 text-white rounded-2xl font-black text-xs"
                                                 >
-                                                    확인
+                                                    추가
                                                 </button>
                                             </div>
                                         )}
                                     </div>
 
-                                    <div onClick={() => fileInputRef.current?.click()} className="cursor-pointer aspect-video rounded-[32px] border-2 border-dashed flex flex-col items-center justify-center transition-all bg-slate-50 border-slate-200 hover:bg-indigo-50 hover:border-indigo-300 overflow-hidden">
-                                        {newPrompt.imageData ? <img src={newPrompt.imageData} className="w-full h-full object-cover" /> : <div className="text-center"><Icon name="upload" size={32} className="text-slate-300 mb-2 mx-auto" /><p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mt-1">대형 이미지 업로드 (자동 최적화)</p></div>}
+                                    <div className="space-y-1">
+                                        <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">이미지 (9:16)</label>
+                                        <div onClick={() => fileInputRef.current?.click()} className="cursor-pointer aspect-video rounded-[32px] border-2 border-dashed border-slate-200 flex flex-col items-center justify-center transition-all bg-slate-50 hover:bg-slate-100 hover:border-indigo-300 overflow-hidden">
+                                            {newPrompt.imageData ? <img src={newPrompt.imageData} className="w-full h-full object-cover" /> : <div className="text-center"><Icon name="upload" size={32} className="text-slate-300 mb-2 mx-auto" /><p className="text-[10px] font-black text-slate-400 uppercase">이미지 선택 시 자동 최적화</p></div>}
+                                        </div>
                                     </div>
+                                    
                                     <input ref={fileInputRef} type="file" accept="image/*" className="hidden" onChange={(e) => {
                                         const f = e.target.files[0];
                                         if (f) {
                                             const r = new FileReader(); 
                                             r.onloadend = async () => {
-                                                try {
-                                                    // 브라우저에서 이미지 리사이징 및 압축 실행
-                                                    const optimized = await optimizeImage(r.result);
-                                                    setNewPrompt({...newPrompt, imageData: optimized});
-                                                    showToast("이미지 최적화 완료");
-                                                } catch (err) {
-                                                    showToast("이미지 처리 실패", "error");
-                                                }
+                                                const optimized = await optimizeImage(r.result);
+                                                setNewPrompt({...newPrompt, imageData: optimized});
+                                                showToast("최적화 완료");
                                             }; 
                                             r.readAsDataURL(f);
                                         }
                                     }} />
-                                    <textarea rows="4" placeholder="AI 프롬프트 내용을 입력하세요" className="w-full px-6 py-4 bg-slate-50 border-none rounded-2xl outline-none text-sm font-medium resize-none focus:ring-4 focus:ring-indigo-500/5 transition-all" value={newPrompt.content} onChange={e => setNewPrompt({...newPrompt, content: e.target.value})} required />
-                                    <button type="submit" className="w-full py-5 bg-indigo-600 text-white rounded-[28px] font-black text-xl shadow-2xl active:scale-95 transition-all">공용 저장소에 등록</button>
+
+                                    <div className="space-y-1">
+                                        <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">AI 프롬프트 내용</label>
+                                        <textarea rows="4" placeholder="프롬프트 내용을 입력하세요" className="w-full px-6 py-4 bg-slate-50 border border-slate-200 rounded-2xl outline-none text-sm font-medium resize-none text-slate-900" value={newPrompt.content} onChange={e => setNewPrompt({...newPrompt, content: e.target.value})} required />
+                                    </div>
+                                    
+                                    <button type="submit" className="w-full py-5 bg-indigo-600 text-white rounded-[28px] font-black text-xl shadow-2xl active:scale-95 transition-all">
+                                        {editingId ? "정보 업데이트" : "공용 저장소에 등록"}
+                                    </button>
                                 </form>
                             </div>
                         </div>
                     )}
 
-                    {/* Delete Confirm Modal */}
+                    {/* 삭제 확인 모달 */}
                     {isDeleteModalOpen && isAdmin && (
                         <div className="fixed inset-0 z-[110] flex items-center justify-center p-6">
-                            <div className="absolute inset-0 bg-slate-900/50 backdrop-blur-sm" onClick={() => setIsDeleteModalOpen(null)}></div>
+                            <div className="absolute inset-0 bg-slate-900/60 backdrop-blur-sm" onClick={() => setIsDeleteModalOpen(null)}></div>
                             <div className="relative bg-white w-full max-w-sm rounded-[48px] p-12 text-center shadow-2xl zoom-in">
-                                <Icon name="trash-2" size={48} className="text-rose-500 mb-6 mx-auto" />
-                                <h3 className="font-black text-slate-800 text-2xl mb-10 leading-tight">삭제하시겠습니까?</h3>
+                                <Icon name="trash-2" size={48} className="text-rose-600 mb-6 mx-auto" />
+                                <h3 className="font-black text-slate-900 text-2xl mb-10 leading-tight">프롬프트를<br/>삭제하시겠습니까?</h3>
                                 <div className="flex gap-4">
-                                    <button onClick={() => setIsDeleteModalOpen(null)} className="flex-1 py-4 bg-slate-100 rounded-2xl font-black text-slate-400 hover:bg-slate-200 transition-colors">취소</button>
+                                    <button onClick={() => setIsDeleteModalOpen(null)} className="flex-1 py-4 bg-slate-100 rounded-2xl font-black text-slate-500">취소</button>
                                     <button onClick={async () => {
                                         try {
                                             const path = `artifacts/${appId}/public/data/prompts`;
                                             await db.collection(path).doc(isDeleteModalOpen).delete();
                                             setIsDeleteModalOpen(null); showToast("삭제되었습니다.");
-                                        } catch(e) { showToast("삭제 실패", "error"); }
-                                    }} className="flex-1 py-4 bg-rose-500 text-white rounded-2xl font-black shadow-lg">삭제</button>
+                                        } catch(e) { showToast("실패", "error"); }
+                                    }} className="flex-1 py-4 bg-rose-600 text-white rounded-2xl font-black shadow-lg">삭제</button>
                                 </div>
                             </div>
                         </div>
                     )}
 
-                    {/* Toast Notification */}
+                    {/* 알림 토스트 */}
                     {toast && (
-                        <div className={`fixed bottom-12 left-1/2 -translate-x-1/2 z-[200] px-8 py-4 rounded-full shadow-2xl text-white text-[12px] font-black flex items-center gap-3 bg-slate-900/95 backdrop-blur-md animate-in slide-in-from-bottom-4`}>
+                        <div className={`fixed bottom-12 left-1/2 -translate-x-1/2 z-[200] px-8 py-4 rounded-full shadow-2xl text-white text-[12px] font-black flex items-center gap-3 bg-slate-900 animate-in slide-in-from-bottom-4`}>
                             <Icon name={toast.type === 'error' ? "alert-circle" : "check"} size={16} className={toast.type === 'error' ? "text-rose-400" : "text-emerald-400"} />
                             {toast.text}
                         </div>
